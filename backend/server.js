@@ -6,13 +6,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/db.js';
 
-// Polyfill fetch if needed (for Node < 18)
+// Ensure fetch is available for Node < 18
 try {
   const nodeFetch = await import('node-fetch').then(m => m.default).catch(() => null);
   if (!globalThis.fetch && nodeFetch) globalThis.fetch = nodeFetch;
 } catch {}
 
-// Routes
+// Import routes
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profiles.js';
 import jobRoutes from './routes/jobs.js';
@@ -29,35 +29,43 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🌐 Explicit, safe CORS configuration
+/* ---------------------- 🛡️ CORS CONFIGURATION ---------------------- */
+const allowedOrigins = [
+  'http://localhost:5173', // for local development
+  'https://jobportal-frontend-opzq.onrender.com', // your frontend on Render
+];
+
 app.use(
   cors({
-    origin: [
-      'http://localhost:5173', // local frontend dev
-      'https://stackhack-9ju0.onrender.com', // backend (self)
-      'https://your-frontend-domain.onrender.com', // replace with your actual frontend URL
-    ],
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   })
 );
 
-// 🧱 Basic middleware
+// Handle preflight requests
+app.options('*', cors());
+
+/* ---------------------- ⚙️ MIDDLEWARES ---------------------- */
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
-// 🪶 Security header to avoid COOP blocking issues
+// Fix for COOP postMessage blocking
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   next();
 });
 
-// 🗂️ Serve uploads statically
+// Serve uploaded files statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 🧭 API routes
+/* ---------------------- 🚏 ROUTES ---------------------- */
 app.use('/auth', authRoutes);
 app.use('/profiles', profileRoutes);
 app.use('/jobs', jobRoutes);
@@ -67,19 +75,21 @@ app.use('/uploads', uploadRoutes);
 app.use('/messages', messageRoutes);
 app.use('/contact', contactRoutes);
 
-// 🤖 AI: ATS Scoring (proxy to OpenRouter)
+/* ---------------------- 🤖 AI: ATS SCORE ROUTE ---------------------- */
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || process.env.OPENROUTER_MODEL_NAME || 'openrouter/auto';
+const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL || process.env.OPENROUTER_MODEL_NAME || 'openrouter/auto';
 
 function buildCompletionsUrl(base) {
   return base.endsWith('/v') ? `${base}1/chat/completions` : `${base}/chat/completions`;
 }
 
-// 💡 Auth optional for debugging — change to `authRequired` in production
+// Temporarily no auth for testing; re-enable authRequired later
 app.post('/ai/ats-score', async (req, res) => {
   try {
-    if (!OPENROUTER_API_KEY) return res.status(500).json({ error: 'OPENROUTER_API_KEY not set on server' });
+    if (!OPENROUTER_API_KEY)
+      return res.status(500).json({ error: 'OPENROUTER_API_KEY not set on server' });
 
     const { resumeText, jobs } = req.body || {};
     if (!resumeText || !Array.isArray(jobs) || !jobs.length) {
@@ -104,18 +114,23 @@ ${(resumeText || '').slice(0, 20000)}
 """
 
 Jobs (JSON array of {id,title,company,description}):
-${JSON.stringify(jobs.map(j => ({
-  id: j._id || j.id,
-  title: j.title,
-  company: j.company,
-  description: j.description,
-}))).slice(0, 20000)}
+${JSON.stringify(
+  jobs.map(j => ({
+    id: j._id || j.id,
+    title: j.title,
+    company: j.company,
+    description: j.description,
+  }))
+).slice(0, 20000)}
 `;
 
     const body = {
       model: OPENROUTER_MODEL,
       messages: [
-        { role: 'system', content: 'Return JSON only. Do not include prose. Keep scores between 0 and 100.' },
+        {
+          role: 'system',
+          content: 'Return JSON only. Do not include prose. Keep scores between 0 and 100.',
+        },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,
@@ -126,7 +141,7 @@ ${JSON.stringify(jobs.map(j => ({
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://stackhack-9ju0.onrender.com',
+        'HTTP-Referer': 'https://job-portal-sryt.onrender.com',
         'X-Title': 'JobBoard ATS',
       },
       body: JSON.stringify(body),
@@ -171,16 +186,16 @@ ${JSON.stringify(jobs.map(j => ({
   }
 });
 
-// ❤️ Health check
+/* ---------------------- ❤️ HEALTH CHECK ---------------------- */
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// 🚀 Start server
+/* ---------------------- 🚀 START SERVER ---------------------- */
 const PORT = process.env.PORT || 5000;
 connectDB()
   .then(() => {
     app.listen(PORT, () => console.log(`✅ API running on port ${PORT}`));
   })
-  .catch((err) => {
+  .catch(err => {
     console.error('❌ Failed to connect DB', err);
     process.exit(1);
   });
