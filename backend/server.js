@@ -31,15 +31,16 @@ const __dirname = path.dirname(__filename);
 
 /* ---------------------- 🛡️ CORS CONFIGURATION ---------------------- */
 const allowedOrigins = [
-  'http://localhost:5173', // for local development
-  'https://jobportal-frontend-opzq.onrender.com', // your frontend on Render
+  'http://localhost:5173',
+  'https://jobportal-frontend-opzq.onrender.com', // frontend
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
+      if (!origin) return callback(null, true); // allow tools or curl
       if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn(`🚫 Blocked CORS request from origin: ${origin}`);
       return callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -48,17 +49,17 @@ app.use(
   })
 );
 
-// Handle preflight requests
+// Handle preflight requests globally
 app.options('*', cors());
 
 /* ---------------------- ⚙️ MIDDLEWARES ---------------------- */
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
-// Fix for COOP postMessage blocking
+// Fix for COOP postMessage blocking (make popups work)
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
   next();
 });
 
@@ -85,11 +86,12 @@ function buildCompletionsUrl(base) {
   return base.endsWith('/v') ? `${base}1/chat/completions` : `${base}/chat/completions`;
 }
 
-// Temporarily no auth for testing; re-enable authRequired later
+// Temporarily no auth for testing; re-enable authRequired when verified
 app.post('/ai/ats-score', async (req, res) => {
   try {
-    if (!OPENROUTER_API_KEY)
+    if (!OPENROUTER_API_KEY) {
       return res.status(500).json({ error: 'OPENROUTER_API_KEY not set on server' });
+    }
 
     const { resumeText, jobs } = req.body || {};
     if (!resumeText || !Array.isArray(jobs) || !jobs.length) {
@@ -101,7 +103,7 @@ app.post('/ai/ats-score', async (req, res) => {
 - Provide an overall ATS score (0-100) for the resume.
 - For each job, provide a score (0-100) and a brief reason.
 - Suggest up to 5 best-fit jobs by id.
-Return STRICT JSON only in the following schema (no extra commentary):
+Return STRICT JSON only in this schema (no extra commentary):
 {
   "overallScore": number,
   "jobScores": [{"jobId": string, "score": number, "reason": string}],
@@ -141,7 +143,7 @@ ${JSON.stringify(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://job-portal-sryt.onrender.com',
+        'HTTP-Referer': 'https://jobportal-frontend-opzq.onrender.com',
         'X-Title': 'JobBoard ATS',
       },
       body: JSON.stringify(body),
