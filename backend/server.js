@@ -32,15 +32,15 @@ const __dirname = path.dirname(__filename);
 /* ---------------------- 🛡️ CORS CONFIGURATION ---------------------- */
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://jobportal-frontend-opzq.onrender.com', // frontend
+  'https://jobportal-frontend-opzq.onrender.com',
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // allow tools or curl
+      if (!origin) return callback(null, true); // allow server-to-server or tools
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      console.warn(`🚫 Blocked CORS request from origin: ${origin}`);
+      console.warn(`🚫 Blocked CORS request from: ${origin}`);
       return callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -56,7 +56,7 @@ app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
-// Fix for COOP postMessage blocking (make popups work)
+// Fix for Cross-Origin-Opener-Policy blocking postMessage in browser
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
@@ -86,7 +86,7 @@ function buildCompletionsUrl(base) {
   return base.endsWith('/v') ? `${base}1/chat/completions` : `${base}/chat/completions`;
 }
 
-// Temporarily no auth for testing; re-enable authRequired when verified
+// ✅ Public route (no authRequired)
 app.post('/ai/ats-score', async (req, res) => {
   try {
     if (!OPENROUTER_API_KEY) {
@@ -158,6 +158,7 @@ ${JSON.stringify(
     }
 
     if (!resp.ok) {
+      console.error('❌ OpenRouter API Error:', text);
       return res.status(resp.status).json({
         error: (data && (data.error || data.message)) || text || 'OpenRouter error',
         status: resp.status,
@@ -178,6 +179,7 @@ ${JSON.stringify(
     }
 
     if (!parsed || typeof parsed !== 'object') {
+      console.error('⚠️ AI response parse failed:', content);
       return res.status(502).json({ error: 'Failed to parse AI response', raw: content });
     }
 
